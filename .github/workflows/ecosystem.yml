@@ -53,7 +53,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           foreach ($plugin in Get-Content host/eng/PluginTesting/plugins.json -Raw | ConvertFrom-Json) {
-            dotnet build "plugins/$($plugin.name)/$($plugin.project)" -c Release -m:1 --artifacts-path "$env:GITHUB_WORKSPACE/artifacts" -p:RuntimeIdentifier=win-x64 -p:SelfContained=false -p:PlatformTarget=AnyCPU -p:GenerateUraPluginManifestOnBuild=true -p:PackageUraPluginOnBuild=true -p:DeployUraPluginToLocalAppDataOnBuild=false
+            dotnet restore "plugins/$($plugin.name)/$($plugin.project)" --force --no-http-cache --artifacts-path "$env:GITHUB_WORKSPACE/artifacts" -p:Configuration=Release -p:RuntimeIdentifier=win-x64 -p:SelfContained=false -p:PlatformTarget=AnyCPU
+            dotnet build "plugins/$($plugin.name)/$($plugin.project)" -c Release --no-restore -m:1 --artifacts-path "$env:GITHUB_WORKSPACE/artifacts" -p:RuntimeIdentifier=win-x64 -p:SelfContained=false -p:PlatformTarget=AnyCPU -p:GenerateUraPluginManifestOnBuild=true -p:PackageUraPluginOnBuild=true -p:DeployUraPluginToLocalAppDataOnBuild=false
           }
       - name: Run the cross-plugin tests
         run: |

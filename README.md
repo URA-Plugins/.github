@@ -28,6 +28,8 @@ act workflow_dispatch --artifact-server-path "$env:TEMP/ura-act-artifacts" --loc
 2. 推送对应 tag，例如 `v1.2.3` 或 `v1.2.3-preview.1`；tag 的数字部分必须与 manifest `Version` 相等。
 3. workflow 下载验证 job 的同一份 ZIP，创建 draft Release、附上唯一插件 ZIP，再发布。带 `-` 后缀的 tag 标记为 prerelease；其它 tag 标记为 stable。
 
-ZIP 文件名、主 DLL、manifest `InternalName` 必须一致，大小上限为 64 MiB；manifest 由固定的 Host NuGet 构建契约生成。发布使用调用仓库的 `GITHUB_TOKEN`，需要 `contents: write`。已有同名 Release 会明确失败，修正版本后使用新 tag。
+插件通过 `Version="*"` 引用最新稳定版 Host NuGet 包。workflow 构建前刷新依赖解析，按实际包内的 repository commit 检出测试用 Host；编译或测试失败直接终止。不同时间运行可能解析到不同包版本，已发布的 ZIP 保持原内容。
 
-URACloud 从 GitHub Release 读取插件包；首次接入时在插件中心选择仓库并同步。共用 workflow 的 `v1` 引用、Host 固定提交和 NuGet 包版本升级需一起验证。
+ZIP 文件名、主 DLL、manifest `InternalName` 必须一致，大小上限为 64 MiB；manifest 由 Host NuGet 构建契约生成。发布使用调用仓库的 `GITHUB_TOKEN`，需要 `contents: write`。已有同名 Release 会明确失败，修正版本后使用新 tag。
+
+URACloud 从 GitHub Release 读取插件包；首次接入时在插件中心选择仓库并同步。

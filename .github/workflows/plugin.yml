@@ -38,23 +38,38 @@ jobs:
           DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
         with:
           dotnet-version: 10.0.303
-      - name: Prepare the pinned Host and source dependencies
+      - name: Prepare source dependencies
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           '{"sdk":{"version":"10.0.303","rollForward":"disable"}}' | Set-Content global.json
           git -c core.longpaths=true -C plugin submodule update --init --recursive
-          git init --quiet host
-          git -C host remote add origin https://github.com/EtherealAO/UmamusumeResponseAnalyzer.git
-          git -C host fetch --quiet --depth 1 origin 6ed9019f8b450a135b0f8a8d0c725170e6a4af16
-          git -c core.longpaths=true -C host checkout --quiet --detach FETCH_HEAD
-      - name: Build the plugin package and Host
+      - name: Build the plugin with the latest stable Host package
         env:
           PROJECT: ${{ inputs.project }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          dotnet build "plugin/$env:PROJECT" -c Release -m:1 --artifacts-path "$env:GITHUB_WORKSPACE/artifacts" -p:RuntimeIdentifier=win-x64 -p:SelfContained=false -p:PlatformTarget=AnyCPU -p:GenerateUraPluginManifestOnBuild=true -p:PackageUraPluginOnBuild=true -p:DeployUraPluginToLocalAppDataOnBuild=false
+          dotnet restore "plugin/$env:PROJECT" --force --no-http-cache --artifacts-path "$env:GITHUB_WORKSPACE/artifacts" -p:Configuration=Release -p:RuntimeIdentifier=win-x64 -p:SelfContained=false -p:PlatformTarget=AnyCPU
+          dotnet build "plugin/$env:PROJECT" -c Release --no-restore -m:1 --artifacts-path "$env:GITHUB_WORKSPACE/artifacts" -p:RuntimeIdentifier=win-x64 -p:SelfContained=false -p:PlatformTarget=AnyCPU -p:GenerateUraPluginManifestOnBuild=true -p:PackageUraPluginOnBuild=true -p:DeployUraPluginToLocalAppDataOnBuild=false
+      - name: Build the Host from the resolved package source
+        env:
+          PROJECT: ${{ inputs.project }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $assetsPath = dotnet msbuild "plugin/$env:PROJECT" -nologo -getProperty:ProjectAssetsFile -p:ArtifactsPath="$env:GITHUB_WORKSPACE/artifacts" -p:Configuration=Release
+          $assets = Get-Content $assetsPath -Raw | ConvertFrom-Json -AsHashtable
+          $package = $assets.libraries.GetEnumerator() | Where-Object Key -like 'UmamusumeResponseAnalyzer/*'
+          $nuspecPath = Join-Path $assets.project.restore.packagesPath "$($package.Value.path)/umamusumeresponseanalyzer.nuspec"
+          [xml]$nuspec = Get-Content $nuspecPath -Raw
+          $commit = $nuspec.package.metadata.repository.commit
+          if ($commit -notmatch '^[0-9a-f]{40}$') { throw "$($package.Key) must identify its Host source commit in the NuGet package." }
+          Write-Output "Using $($package.Key), Host commit $commit"
+          git init --quiet host
+          git -C host remote add origin https://github.com/EtherealAO/UmamusumeResponseAnalyzer.git
+          git -C host fetch --quiet --depth 1 origin $commit
+          git -c core.longpaths=true -C host checkout --quiet --detach FETCH_HEAD
           dotnet build host/UmamusumeResponseAnalyzer/UmamusumeResponseAnalyzer.csproj -c Release -m:1 -p:GenerateUraPluginManifestOnBuild=false -p:PackageUraPluginOnBuild=false -p:DeployUraPluginToLocalAppDataOnBuild=false
       - name: Validate the release package with the Host validator
         id: package
