@@ -45,7 +45,9 @@ jobs:
             git -c core.longpaths=true -C $path submodule update --init --recursive
           }
       - name: Validate publication boundaries
-        run: ./host/eng/PluginTesting/VerifyPublicationBoundary.ps1 -PluginSourcesRoot $env:UraTestPluginSourcesRoot
+        run: |
+          ./host/eng/tests/VerifyUraPluginBuildTargets.ps1
+          ./host/eng/PluginTesting/VerifyPublicationBoundary.ps1 -PluginSourcesRoot $env:UraTestPluginSourcesRoot
       - name: Build fresh plugin packages
         run: |
           $ErrorActionPreference = 'Stop'
