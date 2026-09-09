@@ -1,0 +1,132 @@
+name: URA plugin
+on:
+  workflow_call:
+    inputs:
+      project:
+        required: true
+        type: string
+      publish:
+        type: boolean
+        default: false
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      UraTestHostRoot: ${{ github.workspace }}/host
+      URA_TEST_PLUGIN_ROOT: ${{ github.workspace }}/plugin
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: plugin
+          submodules: recursive
+      - name: Check the pinned SDK
+        id: sdk
+        run: |
+          $installed = @(dotnet --list-sdks) -match '^10\.0\.303 '
+          "installed=$([bool]$installed)" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-dotnet@v5
+        if: steps.sdk.outputs.installed != 'True'
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
+        with:
+          dotnet-version: 10.0.303
+      - name: Prepare the pinned Host and source dependencies
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          '{"sdk":{"version":"10.0.303","rollForward":"disable"}}' | Set-Content global.json
+          git -c core.longpaths=true -C plugin submodule update --init --recursive
+          git init --quiet host
+          git -C host remote add origin https://github.com/EtherealAO/UmamusumeResponseAnalyzer.git
+          git -C host fetch --quiet --depth 1 origin 6ed9019f8b450a135b0f8a8d0c725170e6a4af16
+          git -c core.longpaths=true -C host checkout --quiet --detach FETCH_HEAD
+      - name: Build the plugin package and Host
+        env:
+          PROJECT: ${{ inputs.project }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet build "plugin/$env:PROJECT" -c Release -m:1 --artifacts-path "$env:GITHUB_WORKSPACE/artifacts" -p:RuntimeIdentifier=win-x64 -p:SelfContained=false -p:PlatformTarget=AnyCPU -p:GenerateUraPluginManifestOnBuild=true -p:PackageUraPluginOnBuild=true -p:DeployUraPluginToLocalAppDataOnBuild=false
+          dotnet build host/UmamusumeResponseAnalyzer/UmamusumeResponseAnalyzer.csproj -c Release -m:1 -p:GenerateUraPluginManifestOnBuild=false -p:PackageUraPluginOnBuild=false -p:DeployUraPluginToLocalAppDataOnBuild=false
+      - name: Validate the release package with the Host validator
+        id: package
+        env:
+          PROJECT: ${{ inputs.project }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $assemblyName = dotnet msbuild "plugin/$env:PROJECT" -nologo -getProperty:AssemblyName
+          $packages = @(Get-ChildItem artifacts -Recurse -Filter "$assemblyName.zip")
+          if ($packages.Count -ne 1) { throw "Expected one fresh $assemblyName.zip, found $($packages.Count)." }
+          $package = $packages[0]
+          if ($package.Length -le 0 -or $package.Length -gt 64MB) { throw 'Plugin ZIP must be within 1..64 MiB.' }
+          $hostAssembly = [Reflection.Assembly]::LoadFrom("$env:UraTestHostRoot/UmamusumeResponseAnalyzer/bin/Release/net10.0/UmamusumeResponseAnalyzer.dll")
+          $validator = $hostAssembly.GetType('UmamusumeResponseAnalyzer.Plugin.PluginPackageValidator', $true)
+          $validate = $validator.GetMethod('Validate', [Reflection.BindingFlags]'Static,NonPublic')
+          $manifest = $validate.Invoke($null, @($package.FullName, $true)).Manifest
+          if ($manifest.InternalName -ne $assemblyName) { throw 'Package identity differs from the selected project.' }
+          if ($env:PUBLISH -eq 'true') {
+            $match = [regex]::Match($env:GITHUB_REF_NAME, '^v(?<version>\d+(?:\.\d+){1,3})(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?$')
+            if (-not $match.Success -or [version]$match.Groups['version'].Value -ne $manifest.Version) {
+              throw "Release tag $env:GITHUB_REF_NAME must match numeric manifest version $($manifest.RawVersion)."
+            }
+          }
+          "path=$($package.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Output "Validated $($manifest.InternalName) $($manifest.RawVersion), SHA256=$((Get-FileHash $package.FullName -Algorithm SHA256).Hash)"
+      - name: Run repository tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          if (Test-Path plugin/tests) {
+            foreach ($test in Get-ChildItem plugin/tests -Recurse -Filter '*.csproj' | Sort-Object FullName) {
+              dotnet build $test.FullName -c Release -m:1 -p:GenerateUraPluginManifestOnBuild=false -p:PackageUraPluginOnBuild=false -p:DeployUraPluginToLocalAppDataOnBuild=false
+              dotnet run --project $test.FullName -c Release --no-build --no-restore
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    needs: verify
+    if: ${{ inputs.publish }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-package
+          path: package
+      - name: Publish the verified ZIP
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $packages = @(Get-ChildItem package -File -Filter '*.zip')
+          if ($packages.Count -ne 1) { throw 'The verified artifact must contain exactly one plugin ZIP.' }
+          $archive = [IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
+          try {
+            $reader = [IO.StreamReader]::new($archive.GetEntry('manifest.json').Open())
+            try { $manifest = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+          } finally { $archive.Dispose() }
+          $manifest.Changelog | Set-Content release-notes.md
+          $releaseArgs = @('release', 'create', $env:GITHUB_REF_NAME, $packages[0].FullName, '--verify-tag', '--draft', '--title', $env:GITHUB_REF_NAME, '--notes-file', 'release-notes.md')
+          if ($env:GITHUB_REF_NAME.Contains('-')) { $releaseArgs += '--prerelease' }
+          gh @releaseArgs
+          gh release edit $env:GITHUB_REF_NAME --draft=false
