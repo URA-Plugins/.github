@@ -1,6 +1,6 @@
 # URA plugin workflows
 
-`plugin.yml` 构建单个插件、校验 ZIP、运行该仓库 `tests/` 下的 smoke 项目。`ecosystem.yml` 运行 Host `eng/PluginTesting/Tests/` 下的跨插件测试，插件源码版本由 Host 的 `eng/PluginTesting/plugins.json` 固定。
+`plugin.yml` 构建单个插件、校验 ZIP、运行该仓库 `tests/` 下的 smoke 项目。
 
 ## 本地验证
 
@@ -10,7 +10,7 @@ Windows 安装 Git、PowerShell 7.6、Node.js 24、.NET SDK 10.0.303 和 [act](h
 act workflow_dispatch --artifact-server-path "$env:TEMP/ura-act-artifacts"
 ```
 
-仓库 `.actrc` 将 `windows-latest` 映射到 Windows 本机执行器。workflow 使用临时工作目录，构建关闭本机插件部署；`actions/upload-artifact` 将产物交给 act 的本地 artifact server。Host 仓运行跨插件验证时执行 `act workflow_dispatch`。
+仓库 `.actrc` 将 `windows-latest` 映射到 Windows 本机执行器。workflow 使用临时工作目录，构建关闭本机插件部署；`actions/upload-artifact` 将产物交给 act 的本地 artifact server。
 
 修改共用 workflow 时，增加本地仓库映射，路径填写本仓库的绝对路径：
 
