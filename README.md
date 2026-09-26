@@ -12,17 +12,17 @@ act workflow_dispatch --artifact-server-path "$env:TEMP/ura-act-artifacts"
 
 仓库 `.actrc` 将 `windows-latest` 映射到 Windows 本机执行器。workflow 使用临时工作目录，构建关闭本机插件部署；`actions/upload-artifact` 将产物交给 act 的本地 artifact server。
 
-修改共用 workflow 时，增加本地仓库映射，路径填写本仓库的绝对路径：
+修改共用 workflow 时，增加本地仓库映射，将 `<commit-sha>` 替换为调用仓固定的完整 40 位提交 SHA，路径填写本仓库的绝对路径：
 
 ```powershell
-act workflow_dispatch --artifact-server-path "$env:TEMP/ura-act-artifacts" --local-repository 'URA-Plugins/.github@v1=C:/src/ura-workflows'
+act workflow_dispatch --artifact-server-path "$env:TEMP/ura-act-artifacts" --local-repository 'URA-Plugins/.github@<commit-sha>=C:/src/ura-workflows'
 ```
 
 本地和 GitHub 调用同一份 workflow，执行相同的构建、产物校验和测试步骤。[act 的限制](https://nektosact.com/not_supported.html) 包括 permissions、concurrency 等 GitHub 服务端语义；本地运行不能证明远端权限和 Release 发布成功。
 
 ## GitHub Release
 
-22 个插件仓通过 `URA-Plugins/.github/.github/workflows/plugin.yml@v1` 调用共用 workflow。普通 push、pull request 和手动运行执行验证；推送 `v` 开头的 tag 才执行发布 job。
+22 个插件仓通过 `URA-Plugins/.github/.github/workflows/plugin.yml@<commit-sha>` 调用共用 workflow，每批发布固定到经过验证的完整 40 位提交 SHA；`v1` 标签保留。普通 push、pull request 和手动运行执行验证；推送 `v` 开头的 tag 才执行发布 job。
 
 1. 在插件项目中更新数字版本、变更记录，完成验证。
 2. 推送对应 tag，例如 `v1.2.3` 或 `v1.2.3-preview.1`；tag 的数字部分必须与 manifest `Version` 相等。

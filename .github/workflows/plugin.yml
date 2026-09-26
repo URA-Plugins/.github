@@ -86,7 +86,7 @@ jobs:
           if ($package.Length -le 0 -or $package.Length -gt 64MB) { throw 'Plugin ZIP must be within 1..64 MiB.' }
           $hostAssembly = [Reflection.Assembly]::LoadFrom("$env:UraTestHostRoot/UmamusumeResponseAnalyzer/bin/Release/net10.0/UmamusumeResponseAnalyzer.dll")
           $validator = $hostAssembly.GetType('UmamusumeResponseAnalyzer.Plugin.PluginPackageValidator', $true)
-          $validate = $validator.GetMethod('Validate', [Reflection.BindingFlags]'Static,NonPublic')
+          $validate = $validator.GetMethod('Validate', [Reflection.BindingFlags]'Static,NonPublic', $null, [Type[]]@([string], [bool]), $null)
           $manifest = $validate.Invoke($null, @($package.FullName, $true)).Manifest
           if ($manifest.InternalName -ne $assemblyName) { throw 'Package identity differs from the selected project.' }
           if ($env:PUBLISH -eq 'true') {
